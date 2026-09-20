@@ -1,0 +1,69 @@
+name: 每日采集上海房地产数据
+
+on:
+  schedule:
+    # 每天北京时间 08:30（UTC 00:30）
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装 Python 依赖
+        run: |
+          cd scraper
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: 运行采集脚本
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+        run: |
+          cd scraper
+          python scrape.py
+
+      - name: 提交数据到仓库
+        run: |
+          git config user.email "bot@github-actions"
+          git config user.name "Data Bot"
+          git add data/history/data.json
+          git diff --staged --quiet || git commit -m "📊 数据更新: $(date '+%Y-%m-%d')"
+          git push
+
+      - name: 设置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: 构建前端
+        run: |
+          cd frontend
+          pnpm install
+          BUILD_MODE=prod pnpm build
+
+      - name: 部署到 GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./frontend/dist
